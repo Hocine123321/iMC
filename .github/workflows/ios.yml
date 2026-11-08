@@ -125,18 +125,7 @@ jobs:
       - name: Simulator smoke test (informational)
         continue-on-error: true
         working-directory: platform/ios
-        run: |
-          app=build/dd-sim/Build/Products/Debug-iphonesimulator/HorizonIOS.app
-          xcrun simctl list devices available | head -20
-          udid=$(xcrun simctl list devices available | grep -E 'iPhone' | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
-          echo "device: $udid"
-          xcrun simctl boot "$udid"
-          xcrun simctl install "$udid" "$app"
-          xcrun simctl launch --console-pty "$udid" io.github.hocine123321.imc > smoke.log 2>&1 &
-          sleep 25
-          xcrun simctl io "$udid" screenshot smoke.png
-          cat smoke.log | head -60
-          xcrun simctl shutdown "$udid"
+        run: ci/smoke.sh build/dd-sim/Build/Products/Debug-iphonesimulator/HorizonIOS.app io.github.hocine123321.imc
       - uses: actions/upload-artifact@v4
         if: always()
         with:
