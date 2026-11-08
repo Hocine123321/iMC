@@ -3,7 +3,9 @@ name: ios
 on:
   push:
     branches: [main, "ios/**"]
+    paths-ignore: ["docs/**", "**/*.md"]
   pull_request:
+    paths-ignore: ["docs/**", "**/*.md"]
   workflow_dispatch:
 
 concurrency:
