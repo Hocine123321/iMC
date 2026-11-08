@@ -23,7 +23,7 @@ One row per change or finding that affects the iOS port. Status values: `done` (
 
 | ID | Item | Why it matters |
 |---|---|---|
-| L-006 | Real link of `ring` (TLS) and `libmimalloc-sys` for iOS | Needs a macOS host with Xcode; first job for the M0 CI runner |
+| L-006 | Real link of `ring` (TLS) and `libmimalloc-sys` for iOS | **Closed at the `cargo check` level by CI** (job `rust-ios-check`, whole `horizon-client` graph, real iOS SDK, about 2.5 min). A real *link* of the game binary is still open |
 | L-007 | CI job `cargo check --target aarch64-apple-ios` (M0) | Keeps the graph compiling |
 | L-008 | An iOS build profile that turns off `vulkan`, `gles`, `controllers`, `discord`, `friends`, `heartbeat` | They compile for iOS today but are dead weight or unverified at runtime |
 | L-009 | Gate process spawns (`xdg-open`, `ps`, `sysctl`, current-exe re-spawn) | iOS cannot spawn processes; none is known to be on the single-player start-up path |
@@ -37,5 +37,8 @@ One row per change or finding that affects the iOS port. Status values: `done` (
 |---|---|---|---|
 | L-020 | New crate `crates/horizon-ios` (winit + wgpu cube, `horizon_ios_main`), `platform/ios/` (XcodeGen spec, C `main`), ADR 0001 | [COMPILED] `cargo check --target aarch64-apple-ios -p horizon-ios` on the Linux host; 6 unit tests in the crate (math, vertex and texture sizes) | branch |
 | L-021 | Link set for the Rust static library (UIKit, Foundation, CoreFoundation, CoreGraphics, QuartzCore, Metal, `-lobjc -liconv -lc -lm`) | `rustc --print native-static-libs` on the Linux host | branch; confirmed only when the Xcode build in CI links |
-| L-022 | macOS CI: `.github/workflows/ios.yml` (whole-graph check with real C builds = L-006, Rust libs, Xcode build, unsigned IPA, simulator smoke) | **not yet run when written**; results are recorded in the PR | branch |
+| L-022 | macOS CI: `.github/workflows/ios.yml` (whole-graph check with real C builds = L-006, Rust libs, Xcode build, unsigned IPA, simulator smoke) | **Ran green** on GitHub's macOS arm64 runners: both jobs pass, unsigned IPA of about 1.8 MB produced. The simulator launches the app and it renders at 49 to 60 fps for 25 s with no crash report | branch |
 | L-023 | Upstream workflows parked under `.github/upstream-parked/` | the repo is public; upstream workflows use self-hosted runners, secrets and schedules | done on `main` |
+| L-024 | Bug found by the simulator smoke test: `request_device` with `Limits::default()` fails on iOS Metal (default asks 16 inter-stage variables, Metal offers 15). `horizon-ios` now requests `adapter.limits()`, as Horizon's `gfx.rs` already does | [CI, simulator] first run failed with that exact message; later runs pass | branch |
+| L-025 | Adapter data from the **iOS simulator** ("Apple iOS simulator GPU", via the CI VM; **not an A14**): `max_buffer_size` 268435456 (256 MiB, equal to Horizon's largest arena page), `max_texture_dimension_2d` 8192, `max_inter_stage_shader_variables` 15, `max_storage_buffer_binding_size` 256 MiB; features include `TEXTURE_COMPRESSION_ASTC`, `TEXTURE_COMPRESSION_ETC2`, `SHADER_F16`, `FLOAT32_BLENDABLE`, `DUAL_SOURCE_BLENDING`, `CLIP_DISTANCES`, `TEXTURE_ATOMIC`, `MAPPABLE_PRIMARY_BUFFERS`; **absent**: `SUBGROUP`, `FLOAT32_FILTERABLE`, `MULTI_DRAW_INDIRECT_COUNT`. Needs the same log from a real iPhone 12 (L-011, L-012) | [CI, simulator] annotation of run on `9a13a7d`/`40a1c3c` | open: confirm on device |
+| L-026 | Not yet seen: the simulator screenshot rendered as text (the cube itself). The first analysis had wrong colour thresholds (the surface is `Bgra8UnormSrgb`) | CI | fix pushed with this commit |

@@ -56,7 +56,7 @@ Go/no-go gates: **G1** after M1 (iOS graph builds on a macOS host). **G2** after
 
 ## M2. Hello Metal on a physical iPhone
 
-> **Status:** scaffolding written on branch `ios/m2-xcode-ci` (ledger L-020 to L-023): Rust crate, XcodeGen project, macOS CI that builds an unsigned IPA. **Not met yet:** the success test needs a signed build running on a physical iPhone 12 with the adapter log captured.
+> **Status:** on branch `ios/m2-xcode-ci` (ledger L-020 to L-026): Rust crate, XcodeGen project and macOS CI are working: the app builds unsigned for device and simulator, and runs on the iOS **simulator** in CI at 49 to 60 fps with a Metal adapter. **Not met yet:** the success test needs a signed build on a physical iPhone 12 for 5 minutes with the adapter log captured; simulator results do not stand in for it.
 - **Objective:** the minimum "success" from the brief: a signed app launches on a real iPhone, Rust runs natively, `wgpu` presents through Metal, a textured 3D scene renders.
 - **Existing components:** `wgpu 30.0.1` (+ `third_party/wgpu-hal`), `winit 0.30.13`, shaders/WGSL from `horizon-client-render/src/*.wgsl`.
 - **Modifications:** new crate `crates/horizon-ios` (staticlib, unsafe allowed, one `extern "C"` entry) and `platform/ios/` (Xcode project, `Info.plist`, entitlements). The first scene is a rotating textured cube using a tiny wgpu example, **not** Horizon yet. Log the adapter: features, limits, `max_buffer_size`, `MTLGPUFamily`. Decide ADR 0001: winit-owned lifecycle (Option A) vs Swift-owned view (Option B); start with A.

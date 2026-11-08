@@ -36,17 +36,27 @@ note "smoke 3: process, crashes, screenshot" "$(cat "$out")"
 
 {
   lim 120 python3 -m venv /tmp/pyvenv 2>&1 && lim 120 /tmp/pyvenv/bin/pip install --quiet pillow 2>&1
-  lim 120 /tmp/pyvenv/bin/python - 2>&1 <<'PY'
+  lim 120 /tmp/pyvenv/bin/python -W ignore - 2>&1 <<'PY'
+from collections import Counter
 from PIL import Image
 im = Image.open("smoke.png").convert("RGB")
-w, h = im.size
-im = im.resize((w // 4, h // 4))
-w, h = im.size; n = w * h
-px = list(im.getdata())
-clear = sum(1 for r, g, b in px if abs(r-13) < 8 and abs(g-18) < 8 and abs(b-31) < 10)
-orange = sum(1 for r, g, b in px if r > 120 and 70 < g < 190 and b < 90 and r > g > b)
-blue = sum(1 for r, g, b in px if b > 70 and b > r + 25 and r < 90)
-print(f"screenshot (quarter size) {w}x{h}: distinct colours {len(set(px))}, clear-colour fraction {clear/n:.3f}, orange fraction {orange/n:.3f}, blue fraction {blue/n:.3f}")
+W, H = im.size
+quarter = list(im.resize((W // 4, H // 4)).getdata())
+bg, bg_n = Counter(quarter).most_common(1)[0]
+print(f"screenshot {W}x{H}: {len(set(quarter))} distinct colours at quarter size, dominant colour {bg} covers {bg_n/len(quarter):.3f}")
+cols = 56
+rows = max(8, int(cols * H / W / 2))
+small = list(im.resize((cols, rows)).getdata())
+ramp = " .:-=+*#%@"
+for y in range(rows):
+    line = ""
+    for x in range(cols):
+        r, g, b = small[y * cols + x]
+        if abs(r - bg[0]) + abs(g - bg[1]) + abs(b - bg[2]) < 40:
+            line += " "
+        else:
+            line += ramp[1 + min(8, (r * 299 + g * 587 + b * 114) // 1000 * 9 // 256)]
+    print(line.rstrip() or ".")
 PY
 } > "$out" 2>&1
 note "smoke 4: screenshot analysis" "$(cat "$out")"
