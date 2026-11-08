@@ -125,6 +125,7 @@ pub trait Clipboard {
 /// game can still be pasted in the game.
 #[derive(Default)]
 pub struct SystemClipboard {
+    #[cfg(not(target_os = "ios"))]
     system: Option<arboard::Clipboard>,
     /// The text Horizon last copied (`horizon-ctl status`).
     copied: Option<String>,
@@ -135,6 +136,7 @@ impl SystemClipboard {
     pub fn copied(&self) -> Option<&str> {
         self.copied.as_deref()
     }
+    #[cfg(not(target_os = "ios"))]
     fn system(&mut self) -> Option<&mut arboard::Clipboard> {
         if self.system.is_none() {
             self.system = arboard::Clipboard::new().ok();
@@ -144,6 +146,12 @@ impl SystemClipboard {
 }
 
 impl Clipboard for SystemClipboard {
+    #[cfg(target_os = "ios")]
+    fn get(&mut self) -> String {
+        // arboard has no iOS backend yet: the game's own copies only.
+        self.copied.clone().unwrap_or_default()
+    }
+    #[cfg(not(target_os = "ios"))]
     fn get(&mut self) -> String {
         let Some(system) = self.system() else {
             return self.copied.clone().unwrap_or_default();
@@ -158,6 +166,13 @@ impl Clipboard for SystemClipboard {
             }
         }
     }
+    #[cfg(target_os = "ios")]
+    fn set(&mut self, text: &str) {
+        if !text.is_empty() {
+            self.copied = Some(text.to_owned());
+        }
+    }
+    #[cfg(not(target_os = "ios"))]
     fn set(&mut self, text: &str) {
         if text.is_empty() {
             return;

@@ -38,6 +38,8 @@ Go/no-go gates: **G1** after M1 (iOS graph builds on a macOS host). **G2** after
 - **Depends on:** none.
 
 ## M1. Whole game graph builds for `aarch64-apple-ios`
+
+> **Status:** implemented on branch `ios/m1-compile-clean` (see `docs/ios/ledger.md`, rows L-001 to L-005). The whole game graph type-checks for iOS with only the C-build workarounds in a scratch copy. Not yet done from this list: items 6 and 7, a real link on macOS, and the CI job (M0). Gate G1 is therefore **partly** met.
 - **Objective:** the library graph of `horizon-client` compiles and links (static library) on a macOS host, with iOS-only code fixed rather than stubbed.
 - **Existing components:** `horizon-client-input` (`clipboard.rs`, `keybinds.rs:303-312`), `horizon-hdr` (`lib.rs:12-100`), `horizon-threads` (`process_memory.rs:66-90`), `horizon-client-render` (`gfx.rs:1921`, `gfx.rs:2327-2332`), Cargo features in `horizon-client` and `horizon-client-render` (`vulkan`, `gles`, `controllers`, `discord`, `friends`, `heartbeat`, `audio`).
 - **Modifications:**

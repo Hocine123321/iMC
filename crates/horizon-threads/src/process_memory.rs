@@ -62,8 +62,78 @@ pub fn resident_bytes() -> Option<u64> {
     Some(pages * u64::try_from(page).ok()?)
 }
 
-/// The memory this process holds in RAM, in bytes.
+/// `task_vm_info` (`<mach/task_info.h>`) up to `phys_footprint`, the fields of `TASK_VM_INFO_REV1`.
+/// libc has no binding for it.
 #[cfg(target_vendor = "apple")]
+#[repr(C)]
+struct TaskVmInfo {
+    virtual_size: u64,
+    region_count: i32,
+    page_size: i32,
+    resident_size: u64,
+    resident_size_peak: u64,
+    device: u64,
+    device_peak: u64,
+    internal: u64,
+    internal_peak: u64,
+    external: u64,
+    external_peak: u64,
+    reusable: u64,
+    reusable_peak: u64,
+    purgeable_volatile_pmap: u64,
+    purgeable_volatile_resident: u64,
+    purgeable_volatile_virtual: u64,
+    compressed: u64,
+    compressed_peak: u64,
+    compressed_lifetime: u64,
+    phys_footprint: u64,
+}
+
+#[cfg(target_vendor = "apple")]
+unsafe extern "C" {
+    /// This process's task port, which the `mach_task_self()` macro reads. libc declares it for
+    /// macOS only; it is exported by iOS's libSystem too.
+    static mach_task_self_: libc::mach_port_t;
+}
+
+/// This process's `task_vm_info`, from the Mach `task_info` call (the one iOS allows; its libproc
+/// is not in the SDK).
+#[cfg(target_vendor = "apple")]
+fn task_vm_info() -> Option<TaskVmInfo> {
+    const TASK_VM_INFO: libc::task_flavor_t = 22;
+    // The kernel writes at most `count` 32-bit words, and `count` covers exactly this struct.
+    let mut count = (std::mem::size_of::<TaskVmInfo>() / std::mem::size_of::<libc::integer_t>())
+        as libc::mach_msg_type_number_t;
+    // SAFETY: all-zero is a valid value of this plain C struct; `count` bounds what the call writes
+    // into it; `mach_task_self_` is this process's own task port and needs no closing.
+    unsafe {
+        let mut info: TaskVmInfo = std::mem::zeroed();
+        let status = libc::task_info(
+            mach_task_self_,
+            TASK_VM_INFO,
+            (&raw mut info).cast(),
+            &mut count,
+        );
+        (status == libc::KERN_SUCCESS).then_some(info)
+    }
+}
+
+/// The physical footprint of this process, in bytes: what memory pressure is judged by on iOS
+/// (it counts GPU allocations on unified memory), and what Xcode's memory gauge shows.
+#[cfg(target_vendor = "apple")]
+pub fn footprint_bytes() -> Option<u64> {
+    Some(task_vm_info()?.phys_footprint)
+}
+
+/// The memory this process holds in RAM, in bytes. iOS has no libproc: the Mach `task_info`
+/// resident size.
+#[cfg(target_os = "ios")]
+pub fn resident_bytes() -> Option<u64> {
+    Some(task_vm_info()?.resident_size)
+}
+
+/// The memory this process holds in RAM, in bytes.
+#[cfg(target_os = "macos")]
 pub fn resident_bytes() -> Option<u64> {
     let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
     // SAFETY: all-zero is a valid value of this plain C struct, and the call writes at most `size`
@@ -95,6 +165,12 @@ pub fn resident_bytes() -> Option<u64> {
 #[cfg(all(test, any(windows, target_os = "linux", target_vendor = "apple")))]
 mod tests {
     use super::*;
+
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn the_footprint_is_reported() {
+        assert!(footprint_bytes().unwrap() > 0);
+    }
 
     #[test]
     fn touched_memory_counts_as_resident() {
