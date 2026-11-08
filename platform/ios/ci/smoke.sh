@@ -26,8 +26,8 @@ sleep 30
   ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i -E 'HorizonIOS|imc' || echo "none"
 } >> "$out" 2>&1
 xcrun simctl io "$udid" screenshot smoke.png >> "$out" 2>&1
-python3 -m pip install --quiet pillow >> "$out" 2>&1
-python3 - >> "$out" 2>&1 <<'PY'
+python3 -m venv /tmp/pyvenv >> "$out" 2>&1 && /tmp/pyvenv/bin/pip install --quiet pillow >> "$out" 2>&1
+/tmp/pyvenv/bin/python - >> "$out" 2>&1 <<'PY'
 from PIL import Image
 im = Image.open("smoke.png").convert("RGB")
 w, h = im.size

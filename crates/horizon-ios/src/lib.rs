@@ -149,7 +149,9 @@ impl State {
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("horizon-ios device"),
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
+            // The adapter's own limits, as Horizon does: wgpu's defaults ask for 16 inter-stage
+            // variables and iOS's Metal offers 15 (found by the simulator smoke test in CI).
+            required_limits: adapter.limits(),
             memory_hints: wgpu::MemoryHints::MemoryUsage,
             ..Default::default()
         }))
