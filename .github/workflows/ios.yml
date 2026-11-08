@@ -1,0 +1,147 @@
+name: ios
+
+on:
+  push:
+    branches: [main, "ios/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+  IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+
+jobs:
+  # The whole game graph for iOS, with the real C builds (ring, mimalloc) against the iOS SDK.
+  rust-ios-check:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target aarch64-apple-ios --target aarch64-apple-ios-sim
+          rustup default stable
+          rustc -Vv
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ios-check-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ios-check-${{ runner.os }}-
+      - name: cargo check, whole game graph, aarch64-apple-ios
+        run: set -o pipefail; cargo check --locked --target aarch64-apple-ios -p horizon-client 2>&1 | tee check.log
+      - name: Explain a failure
+        if: failure()
+        run: platform/ios/ci/annotate-tail.sh check.log "rust-ios-check"
+
+  # The app: Rust static libraries, the Xcode project, an unsigned device build and a simulator build.
+  ios-app:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target aarch64-apple-ios --target aarch64-apple-ios-sim
+          rustup default stable
+          rustc -Vv
+          xcodebuild -version
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ios-app-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ios-app-${{ runner.os }}-
+      - name: Rust unit tests for the crate (host)
+        run: set -o pipefail; cargo test --locked -p horizon-ios 2>&1 | tee rust-test.log
+      - name: Rust static library, device
+        run: set -o pipefail; cargo build --release --locked --target aarch64-apple-ios -p horizon-ios 2>&1 | tee rust-device.log
+      - name: Rust static library, simulator
+        run: set -o pipefail; cargo build --release --locked --target aarch64-apple-ios-sim -p horizon-ios 2>&1 | tee rust-sim.log
+      - name: Stage the libraries
+        run: |
+          mkdir -p platform/ios/build/rust/device platform/ios/build/rust/simulator
+          cp target/aarch64-apple-ios/release/libhorizon_ios.a platform/ios/build/rust/device/
+          cp target/aarch64-apple-ios-sim/release/libhorizon_ios.a platform/ios/build/rust/simulator/
+          ls -la platform/ios/build/rust/*
+      - name: Generate the Xcode project
+        working-directory: platform/ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build for device (unsigned)
+        working-directory: platform/ios
+        run: |
+          set -o pipefail
+          xcodebuild -project HorizonIOS.xcodeproj -scheme HorizonIOS -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/dd-device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee xcodebuild-device.log
+      - name: Package the unsigned IPA
+        working-directory: platform/ios
+        run: |
+          app=build/dd-device/Build/Products/Release-iphoneos/HorizonIOS.app
+          test -d "$app"
+          rm -rf build/ipa && mkdir -p build/ipa/Payload
+          cp -R "$app" build/ipa/Payload/
+          (cd build/ipa && zip -qry ../iMC-unsigned.ipa Payload)
+          ls -la build/iMC-unsigned.ipa
+          plutil -p "$app/Info.plist" | head -30
+          lipo -info "$app/HorizonIOS"
+      - name: Build for the simulator
+        working-directory: platform/ios
+        run: |
+          set -o pipefail
+          xcodebuild -project HorizonIOS.xcodeproj -scheme HorizonIOS -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/dd-sim \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee xcodebuild-sim.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iMC-unsigned-ipa
+          path: platform/ios/build/iMC-unsigned.ipa
+          if-no-files-found: error
+      - name: Explain a failure
+        if: failure()
+        run: |
+          for f in rust-test.log rust-device.log rust-sim.log platform/ios/xcodebuild-device.log platform/ios/xcodebuild-sim.log; do
+            [ -f "$f" ] && grep -qE 'error|FAILED' "$f" && platform/ios/ci/annotate-tail.sh "$f" "ios-app $(basename $f)"
+          done
+          exit 0
+      - name: Simulator smoke test (informational)
+        continue-on-error: true
+        working-directory: platform/ios
+        run: |
+          app=build/dd-sim/Build/Products/Debug-iphonesimulator/HorizonIOS.app
+          xcrun simctl list devices available | head -20
+          udid=$(xcrun simctl list devices available | grep -E 'iPhone' | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+          echo "device: $udid"
+          xcrun simctl boot "$udid"
+          xcrun simctl install "$udid" "$app"
+          xcrun simctl launch --console-pty "$udid" io.github.hocine123321.imc > smoke.log 2>&1 &
+          sleep 25
+          xcrun simctl io "$udid" screenshot smoke.png
+          cat smoke.log | head -60
+          xcrun simctl shutdown "$udid"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iMC-simulator-smoke
+          path: |
+            platform/ios/smoke.png
+            platform/ios/smoke.log
+          if-no-files-found: ignore

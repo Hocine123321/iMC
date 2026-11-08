@@ -30,3 +30,12 @@ One row per change or finding that affects the iOS port. Status values: `done` (
 | L-010 | `horizon-cosmetics`, `-telemetry`, `-bench`, `-server-files`, `-prepare` not conclusively checked for iOS | Unknown |
 | L-011 | `hw.perflevel0.physicalcpu` on A14 | Decides the default worker count |
 | L-012 | Metal HDR and `max_buffer_size` vs 256 MiB arena pages | Needs the adapter log from a device (M2) |
+
+## M2: hello Metal on a device (branch `ios/m2-xcode-ci`)
+
+| ID | Item | Evidence | Status |
+|---|---|---|---|
+| L-020 | New crate `crates/horizon-ios` (winit + wgpu cube, `horizon_ios_main`), `platform/ios/` (XcodeGen spec, C `main`), ADR 0001 | [COMPILED] `cargo check --target aarch64-apple-ios -p horizon-ios` on the Linux host; 6 unit tests in the crate (math, vertex and texture sizes) | branch |
+| L-021 | Link set for the Rust static library (UIKit, Foundation, CoreFoundation, CoreGraphics, QuartzCore, Metal, `-lobjc -liconv -lc -lm`) | `rustc --print native-static-libs` on the Linux host | branch; confirmed only when the Xcode build in CI links |
+| L-022 | macOS CI: `.github/workflows/ios.yml` (whole-graph check with real C builds = L-006, Rust libs, Xcode build, unsigned IPA, simulator smoke) | **not yet run when written**; results are recorded in the PR | branch |
+| L-023 | Upstream workflows parked under `.github/upstream-parked/` | the repo is public; upstream workflows use self-hosted runners, secrets and schedules | done on `main` |

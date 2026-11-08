@@ -1,0 +1,60 @@
+# XcodeGen spec: `xcodegen generate` in this folder writes HorizonIOS.xcodeproj (not committed).
+# The Rust static library is built first by CI (or by hand, see README.md) and put in build/rust/.
+name: HorizonIOS
+options:
+  bundleIdPrefix: io.github.hocine123321
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_BITCODE: NO
+    SDKROOT: iphoneos
+    CLANG_ENABLE_OBJC_ARC: YES
+targets:
+  HorizonIOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - Info.plist
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: iMC
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities: [arm64, metal]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.hocine123321.imc
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/App"]
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/build/rust/device"
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/build/rust/simulator"
+        EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+        # `cargo rustc -p horizon-ios --crate-type staticlib -- --print native-static-libs` lists
+        # what the Rust library needs; the frameworks are in `dependencies` below.
+        OTHER_LDFLAGS: ["-lhorizon_ios", "-lobjc", "-liconv", "-lc", "-lm"]
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: Foundation.framework
+      - sdk: CoreFoundation.framework
+      - sdk: CoreGraphics.framework
+      - sdk: QuartzCore.framework
+      - sdk: Metal.framework
+schemes:
+  HorizonIOS:
+    build:
+      targets:
+        HorizonIOS: all
+    run:
+      config: Debug
+    archive:
+      config: Release
