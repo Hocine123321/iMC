@@ -124,6 +124,7 @@ jobs:
           exit 0
       - name: Simulator smoke test (informational)
         continue-on-error: true
+        timeout-minutes: 15
         working-directory: platform/ios
         run: ci/smoke.sh build/dd-sim/Build/Products/Debug-iphonesimulator/HorizonIOS.app io.github.hocine123321.imc
       - uses: actions/upload-artifact@v4
