@@ -21,9 +21,18 @@ echo "device: $line"
 } > "$out" 2>&1
 note "smoke 1: boot and install" "$(cat "$out")"
 
-( lim 90 xcrun simctl launch --console "$udid" "$bundle" > smoke.log 2>&1 ) &
-sleep 25
-note "smoke 2: app output (stderr) after 25 s" "$(head -n 40 smoke.log | cut -c1-400)"
+# Let SpringBoard settle after boot, then launch with the app's output going to files, and wait for
+# the first frame-rate line (up to about 2 minutes) instead of a fixed sleep.
+sleep 20
+lim 150 xcrun simctl launch --stdout="$PWD/smoke.out" --stderr="$PWD/smoke.log" "$udid" "$bundle" > launch.txt 2>&1
+note "smoke 2a: launch" "$(cat launch.txt)"
+i=0
+while [ $i -lt 60 ]; do
+  grep -q ' fps ' smoke.log 2>/dev/null && break
+  i=$((i+1)); sleep 2
+done
+sleep 4
+note "smoke 2: app output (stderr)" "$( (head -n 40 smoke.log | cut -c1-400) 2>&1; echo "(waited $((i*2)) s for the first fps line)" )"
 
 {
   echo "--- process"
