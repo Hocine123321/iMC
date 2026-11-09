@@ -647,6 +647,16 @@ impl super::CapabilitiesQuery {
         let os_type = super::OsType::new(version, device);
 
         let family_check = available!(macos = 10.15, ios = 13.0, tvos = 13.0, visionos = 1.0);
+        // The legacy `MTLFeatureSet` queries are deprecated and can answer "no" where the GPU can do
+        // it (seen in the iOS simulator, on iOS 26: indirect draws were reported unsupported, and
+        // wgpu then refused the INDIRECT buffers of Horizon's terrain). The GPU-family queries are
+        // the current API. Either answering yes counts, so this never turns a capability off. Not
+        // on macOS, where the legacy sets keep their upstream meaning (and Apple GPU families would
+        // switch on iOS-only table entries on Apple silicon).
+        let any = |sets: &[MTLFeatureSet], family: MTLGPUFamily| {
+            Self::supports_any(device, sets)
+                || (family_check && os_type != super::OsType::Macos && device.supportsFamily(family))
+        };
         let metal3 = family_check && device.supportsFamily(MTLGPUFamily::Metal3);
         let metal4 = family_check && device.supportsFamily(MTLGPUFamily::Metal4);
         let mut sample_count_mask = crate::TextureFormatCapabilities::MULTISAMPLE_X4; // 1 and 4 samples are supported on all devices
@@ -746,18 +756,18 @@ impl super::CapabilitiesQuery {
                 MUTABLE_COMPARISON_SAMPLER_SUPPORT,
             ),
             sampler_clamp_to_border: Self::supports_any(device, SAMPLER_CLAMP_TO_BORDER_SUPPORT),
-            indirect_draw_dispatch: Self::supports_any(device, INDIRECT_DRAW_DISPATCH_SUPPORT),
-            base_vertex_first_instance_drawing: Self::supports_any(
-                device,
+            indirect_draw_dispatch: any(INDIRECT_DRAW_DISPATCH_SUPPORT, MTLGPUFamily::Apple3),
+            base_vertex_first_instance_drawing: any(
                 BASE_VERTEX_FIRST_INSTANCE_SUPPORT,
+                MTLGPUFamily::Apple3,
             ),
             dual_source_blending: Self::supports_any(device, DUAL_SOURCE_BLEND_SUPPORT),
             low_power: os_type != super::OsType::Macos || device.isLowPower(),
             headless: os_type == super::OsType::Macos && device.isHeadless(),
-            layered_rendering: Self::supports_any(device, LAYERED_RENDERING_SUPPORT),
-            function_specialization: Self::supports_any(device, FUNCTION_SPECIALIZATION_SUPPORT),
-            depth_clip_mode: Self::supports_any(device, DEPTH_CLIP_MODE),
-            texture_cube_array: Self::supports_any(device, TEXTURE_CUBE_ARRAY_SUPPORT),
+            layered_rendering: any(LAYERED_RENDERING_SUPPORT, MTLGPUFamily::Apple5),
+            function_specialization: any(FUNCTION_SPECIALIZATION_SUPPORT, MTLGPUFamily::Apple1),
+            depth_clip_mode: any(DEPTH_CLIP_MODE, MTLGPUFamily::Apple4),
+            texture_cube_array: any(TEXTURE_CUBE_ARRAY_SUPPORT, MTLGPUFamily::Apple4),
             supports_float_filtering: os_type == super::OsType::Macos
                 || (available!(macos = 11.0, ios = 14.0, tvos = 16.0, visionos = 1.0)
                     && device_class_responds_to(device, sel!(supports32BitFloatFiltering))
@@ -786,10 +796,10 @@ impl super::CapabilitiesQuery {
             format_astc_hdr: family_check && device.supportsFamily(MTLGPUFamily::Apple6),
             // Apple3 and later supports compressed volume texture formats including ASTC Sliced 3D
             format_astc_3d: family_check && device.supportsFamily(MTLGPUFamily::Apple3),
-            format_any8_unorm_srgb_all: Self::supports_any(device, ANY8_UNORM_SRGB_ALL),
-            format_any8_unorm_srgb_no_write: !Self::supports_any(device, ANY8_UNORM_SRGB_ALL)
+            format_any8_unorm_srgb_all: any(ANY8_UNORM_SRGB_ALL, MTLGPUFamily::Apple2),
+            format_any8_unorm_srgb_no_write: !any(ANY8_UNORM_SRGB_ALL, MTLGPUFamily::Apple2)
                 && os_type != super::OsType::Macos,
-            format_any8_snorm_all: Self::supports_any(device, ANY8_SNORM_RESOLVE),
+            format_any8_snorm_all: any(ANY8_SNORM_RESOLVE, MTLGPUFamily::Apple2),
             format_r16_norm_all: os_type == super::OsType::Macos,
             // No devices support r32's all capabilities
             format_r32_all: false,
@@ -800,15 +810,15 @@ impl super::CapabilitiesQuery {
             // Only iOS doesn't support r32float's filter  capability
             format_r32float_no_filter: os_type != super::OsType::Macos,
             format_r32float_all: os_type == super::OsType::Macos,
-            format_rgba8_srgb_all: Self::supports_any(device, RGBA8_SRGB),
-            format_rgba8_srgb_no_write: !Self::supports_any(device, RGBA8_SRGB),
-            format_rgb10a2_unorm_all: Self::supports_any(device, RGB10A2UNORM_ALL),
-            format_rgb10a2_unorm_no_write: !Self::supports_any(device, RGB10A2UNORM_ALL),
-            format_rgb10a2_uint_write: Self::supports_any(device, RGB10A2UINT_WRITE),
-            format_rg11b10_all: Self::supports_any(device, RG11B10FLOAT_ALL),
-            format_rg11b10_no_write: !Self::supports_any(device, RG11B10FLOAT_ALL),
-            format_rgb9e5_all: Self::supports_any(device, RGB9E5FLOAT_ALL),
-            format_rgb9e5_no_write: !Self::supports_any(device, RGB9E5FLOAT_ALL)
+            format_rgba8_srgb_all: any(RGBA8_SRGB, MTLGPUFamily::Apple2),
+            format_rgba8_srgb_no_write: !any(RGBA8_SRGB, MTLGPUFamily::Apple2),
+            format_rgb10a2_unorm_all: any(RGB10A2UNORM_ALL, MTLGPUFamily::Apple3),
+            format_rgb10a2_unorm_no_write: !any(RGB10A2UNORM_ALL, MTLGPUFamily::Apple3),
+            format_rgb10a2_uint_write: any(RGB10A2UINT_WRITE, MTLGPUFamily::Apple3),
+            format_rg11b10_all: any(RG11B10FLOAT_ALL, MTLGPUFamily::Apple3),
+            format_rg11b10_no_write: !any(RG11B10FLOAT_ALL, MTLGPUFamily::Apple3),
+            format_rgb9e5_all: any(RGB9E5FLOAT_ALL, MTLGPUFamily::Apple3),
+            format_rgb9e5_no_write: !any(RGB9E5FLOAT_ALL, MTLGPUFamily::Apple3)
                 && os_type != super::OsType::Macos,
             format_rgb9e5_filter_only: os_type == super::OsType::Macos,
             format_rg32_color: true,
