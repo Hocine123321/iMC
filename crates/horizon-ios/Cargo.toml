@@ -10,10 +10,21 @@ description = "The Rust side of the iOS app: the entry point the Xcode project c
 # staticlib: linked into the Xcode app. rlib: tests and the desktop example.
 crate-type = ["staticlib", "rlib"]
 
+[features]
+# Horizon's own client as a second entry point (`horizon_ios_game_main`, milestone M4). Off: only the
+# hello-Metal cube, which builds in about a minute.
+game = ["dep:horizon-client"]
+
 [dependencies]
+horizon-threads = { path = "../horizon-threads" }
+# No audio, controllers, Discord, friends or heartbeat on iOS yet (ledger L-008).
+horizon-client = { path = "../horizon-client", default-features = false, optional = true }
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "wgsl"] }
 winit = "0.30.13"
 pollster = "0.4"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
 
 [target.'cfg(not(any(target_os = "ios", target_os = "macos")))'.dependencies]
 # Only so the example runs on a Linux or Windows desktop; iOS and macOS use Metal.

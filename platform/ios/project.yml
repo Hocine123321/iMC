@@ -1,5 +1,6 @@
 # XcodeGen spec: `xcodegen generate` in this folder writes HorizonIOS.xcodeproj (not committed).
 # The Rust static library is built first by CI (or by hand, see README.md) and put in build/rust/.
+# Two apps from one library: "iMC Cube" (hello Metal + telemetry overlay) and "iMC" (Horizon's client).
 name: HorizonIOS
 options:
   bundleIdPrefix: io.github.hocine123321
@@ -8,8 +9,8 @@ options:
   createIntermediateGroups: true
 settings:
   base:
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_BITCODE: NO
     SDKROOT: iphoneos
@@ -19,11 +20,49 @@ targets:
     type: application
     platform: iOS
     sources:
-      - path: App
+      - path: Cube
         excludes:
           - Info.plist
     info:
-      path: App/Info.plist
+      path: Cube/Info.plist
+      properties:
+        CFBundleDisplayName: iMC Cube
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities: [arm64, metal]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        # The app's Documents folder shows up in the Files app: the telemetry reports are there.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.hocine123321.imc
+        HEADER_SEARCH_PATHS: ["$(SRCROOT)/App"]
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/build/rust/device"
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/build/rust/simulator"
+        EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+        # What the Rust library needs besides itself is listed by `rustc --print native-static-libs`;
+        # CI passes that list as OTHER_LDFLAGS (it differs with the `game` feature). These are the
+        # fallback for a build by hand without it.
+        OTHER_LDFLAGS: ["-lhorizon_ios", "-lobjc", "-liconv", "-lc", "-lm"]
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: Foundation.framework
+      - sdk: CoreFoundation.framework
+      - sdk: CoreGraphics.framework
+      - sdk: QuartzCore.framework
+      - sdk: Metal.framework
+  HorizonIOSGame:
+    type: application
+    platform: iOS
+    sources:
+      - path: Game
+        excludes:
+          - Info.plist
+    info:
+      path: Game/Info.plist
       properties:
         CFBundleDisplayName: iMC
         UILaunchScreen: {}
@@ -32,15 +71,19 @@ targets:
         UIRequiresFullScreen: true
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false
+        # The app's Documents folder shows up in the Files app: the telemetry reports are there.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.hocine123321.imc
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.hocine123321.imc.game
         HEADER_SEARCH_PATHS: ["$(SRCROOT)/App"]
         LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: "$(SRCROOT)/build/rust/device"
         LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: "$(SRCROOT)/build/rust/simulator"
         EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
-        # `cargo rustc -p horizon-ios --crate-type staticlib -- --print native-static-libs` lists
-        # what the Rust library needs; the frameworks are in `dependencies` below.
+        # What the Rust library needs besides itself is listed by `rustc --print native-static-libs`;
+        # CI passes that list as OTHER_LDFLAGS (it differs with the `game` feature). These are the
+        # fallback for a build by hand without it.
         OTHER_LDFLAGS: ["-lhorizon_ios", "-lobjc", "-liconv", "-lc", "-lm"]
     dependencies:
       - sdk: UIKit.framework
@@ -54,7 +97,7 @@ schemes:
     build:
       targets:
         HorizonIOS: all
-    run:
-      config: Debug
-    archive:
-      config: Release
+  HorizonIOSGame:
+    build:
+      targets:
+        HorizonIOSGame: all

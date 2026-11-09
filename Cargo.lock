@@ -1685,6 +1685,9 @@ dependencies = [
 name = "horizon-ios"
 version = "0.1.0"
 dependencies = [
+ "horizon-client",
+ "horizon-threads",
+ "objc2 0.6.5",
  "pollster",
  "wgpu",
  "winit",

@@ -1,6 +1,23 @@
 //! Startup shared by the gameplay library and its executable.
 use crate::{crash, game, logging};
 
+/// The command line to use instead of the process's own (see [`set_process_args`]).
+static PROCESS_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Gives the game its command line (without the program name) when the host cannot: an iOS app is
+/// started by the system with no arguments. Call before [`main`]; the first call wins.
+pub fn set_process_args(args: Vec<String>) {
+    let _ = PROCESS_ARGS.set(args);
+}
+
+/// The command line without the program name: the one [`set_process_args`] gave, else the process's.
+pub(crate) fn process_args() -> Vec<String> {
+    PROCESS_ARGS
+        .get()
+        .cloned()
+        .unwrap_or_else(|| std::env::args().skip(1).collect())
+}
+
 /// Start the game. The executable supplies the allocator and retains the mod API marker.
 pub fn main() {
     main_with(Default::default());
@@ -16,7 +33,7 @@ pub fn main_with(mods: crate::mod_api::Mods) {
     horizon_client::telemetry::mark_start();
     horizon_client::spans::startup::init(std::time::Instant::now());
     horizon_client::spans::trace::start_from_env();
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = process_args();
     let game_args = args.iter().take_while(|a| *a != "--dedicated");
     let help = game_args
         .clone()

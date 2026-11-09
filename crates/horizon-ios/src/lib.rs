@@ -11,6 +11,11 @@
 //! simplest lifecycle that does not touch Metal in the background.
 
 mod math;
+mod overlay;
+mod telemetry;
+
+#[cfg(feature = "game")]
+mod game;
 
 use std::{
     sync::Arc,
@@ -115,6 +120,9 @@ struct State {
     vertices: wgpu::Buffer,
     uniforms: wgpu::Buffer,
     depth: wgpu::TextureView,
+    overlay: overlay::Overlay,
+    overlay_updated: Instant,
+    last_frame: Instant,
     started: Instant,
     frames: u32,
     last_report: Instant,
@@ -334,6 +342,8 @@ impl State {
         });
 
         let depth = depth_view(&device, config.width, config.height);
+        let overlay = overlay::Overlay::new(&device, &queue, config.format, DEPTH_FORMAT);
+        overlay.set_layout(&queue, config.width, config.height);
         let now = Instant::now();
         Ok(Self {
             window,
@@ -346,6 +356,9 @@ impl State {
             vertices,
             uniforms,
             depth,
+            overlay,
+            overlay_updated: now,
+            last_frame: now,
             started: now,
             frames: 0,
             last_report: now,
@@ -360,6 +373,7 @@ impl State {
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
         self.depth = depth_view(&self.device, width, height);
+        self.overlay.set_layout(&self.queue, width, height);
     }
 
     fn render(&mut self) {
@@ -433,9 +447,18 @@ impl State {
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertices.slice(..));
             pass.draw(0..36, 0..1);
+            self.overlay.draw(&mut pass);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         self.queue.present(frame);
+
+        let frame_ms = self.last_frame.elapsed().as_secs_f32() * 1000.0;
+        self.last_frame = Instant::now();
+        telemetry::frame(frame_ms);
+        if self.overlay_updated.elapsed() >= Duration::from_millis(500) {
+            self.overlay.set_text(&self.queue, &telemetry::overlay_lines());
+            self.overlay_updated = Instant::now();
+        }
 
         self.frames += 1;
         let since = self.last_report.elapsed();
@@ -538,6 +561,7 @@ impl ApplicationHandler for App {
 
 /// Runs the app until it is closed. On iOS winit never returns from this: it owns `UIApplicationMain`.
 pub fn run() {
+    telemetry::start("cube");
     let event_loop = match EventLoop::new() {
         Ok(event_loop) => event_loop,
         Err(e) => {

@@ -33,107 +33,171 @@ jobs:
           rustup default stable
           rustc -Vv
           xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-version
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ios-check-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ios-check-${{ runner.os }}-
+          key: ios-check-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: ios-check-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
       - name: cargo check, whole game graph, aarch64-apple-ios
         run: set -o pipefail; cargo check --locked --target aarch64-apple-ios -p horizon-client 2>&1 | tee check.log
       - name: Explain a failure
         if: failure()
         run: platform/ios/ci/annotate-tail.sh check.log "rust-ios-check"
 
-  # The app: Rust static libraries, the Xcode project, an unsigned device build and a simulator build.
-  ios-app:
+  # The Rust crate's unit tests, on the macOS host.
+  crate-tests:
     runs-on: macos-latest
-    timeout-minutes: 90
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
         run: |
-          rustup toolchain install stable --profile minimal --target aarch64-apple-ios --target aarch64-apple-ios-sim
+          rustup toolchain install stable --profile minimal
           rustup default stable
-          rustc -Vv
-          xcodebuild -version
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ios-app-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ios-app-${{ runner.os }}-
-      - name: Rust unit tests for the crate (host)
-        run: set -o pipefail; cargo test --locked -p horizon-ios 2>&1 | tee rust-test.log
-      - name: Rust static library, device
-        run: set -o pipefail; cargo build --release --locked --target aarch64-apple-ios -p horizon-ios 2>&1 | tee rust-device.log
-      - name: Rust static library, simulator
-        run: set -o pipefail; cargo build --release --locked --target aarch64-apple-ios-sim -p horizon-ios 2>&1 | tee rust-sim.log
-      - name: Stage the libraries
+          key: ios-tests-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: ios-tests-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+      - name: cargo test -p horizon-ios
+        run: set -o pipefail; cargo test --locked -p horizon-ios 2>&1 | tee test.log
+      - name: Explain a failure
+        if: failure()
+        run: platform/ios/ci/annotate-tail.sh test.log "crate-tests"
+
+  # The Rust static library with Horizon's client in it, for device and for the simulator, and the
+  # system libraries it needs, as rustc reports them.
+  libs:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { triple: aarch64-apple-ios, dir: device }
+          - { triple: aarch64-apple-ios-sim, dir: simulator }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
         run: |
-          mkdir -p platform/ios/build/rust/device platform/ios/build/rust/simulator
-          cp target/aarch64-apple-ios/release/libhorizon_ios.a platform/ios/build/rust/device/
-          cp target/aarch64-apple-ios-sim/release/libhorizon_ios.a platform/ios/build/rust/simulator/
-          ls -la platform/ios/build/rust/*
+          rustup toolchain install stable --profile minimal --target ${{ matrix.triple }}
+          rustup default stable
+          rustc -Vv
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ios-lib-${{ matrix.dir }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: ios-lib-${{ matrix.dir }}-${{ hashFiles('Cargo.lock') }}-
+      - name: "Build the static library (release, no LTO, a test build)"
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: |
+          set -o pipefail
+          cargo rustc --release --locked --target ${{ matrix.triple }} -p horizon-ios --features game \
+            --lib --crate-type staticlib -- --print native-static-libs 2>&1 | tee rust-lib.log
+      - name: Collect the library and its link flags
+        run: |
+          mkdir -p out
+          cp target/${{ matrix.triple }}/release/libhorizon_ios.a out/
+          grep 'native-static-libs:' rust-lib.log | sed 's/.*native-static-libs: //' > out/native-libs.txt
+          ls -la out
+          echo "::notice title=native libs (${{ matrix.dir }})::$(cat out/native-libs.txt)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lib-${{ matrix.dir }}
+          path: out
+          if-no-files-found: error
+      - name: Explain a failure
+        if: failure()
+        run: platform/ios/ci/annotate-tail.sh rust-lib.log "libs ${{ matrix.dir }}"
+
+  # Two apps from the library: the cube with the telemetry overlay, and Horizon's client.
+  xcode:
+    needs: [libs, crate-tests]
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: lib-device
+          path: platform/ios/build/rust/device
+      - uses: actions/download-artifact@v4
+        with:
+          name: lib-simulator
+          path: platform/ios/build/rust/simulator
       - name: Generate the Xcode project
         working-directory: platform/ios
         run: |
+          xcodebuild -version
+          ls -la build/rust/*
           brew install xcodegen
           xcodegen generate
-      - name: Build for device (unsigned)
+      - name: Build both apps for device (unsigned) and package IPAs
         working-directory: platform/ios
         run: |
           set -o pipefail
-          xcodebuild -project HorizonIOS.xcodeproj -scheme HorizonIOS -configuration Release \
-            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/dd-device \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee xcodebuild-device.log
-      - name: Package the unsigned IPA
-        working-directory: platform/ios
-        run: |
-          app=build/dd-device/Build/Products/Release-iphoneos/HorizonIOS.app
-          test -d "$app"
-          rm -rf build/ipa && mkdir -p build/ipa/Payload
-          cp -R "$app" build/ipa/Payload/
-          (cd build/ipa && zip -qry ../iMC-unsigned.ipa Payload)
-          ls -la build/iMC-unsigned.ipa
-          plutil -p "$app/Info.plist" | head -30
-          lipo -info "$app/HorizonIOS"
-      - name: Build for the simulator
+          libs="-lhorizon_ios $(cat build/rust/device/native-libs.txt)"
+          for scheme in HorizonIOS HorizonIOSGame; do
+            xcodebuild -project HorizonIOS.xcodeproj -scheme $scheme -configuration Release \
+              -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/dd-device \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+              OTHER_LDFLAGS="$libs" build 2>&1 | tee xcodebuild-device-$scheme.log
+          done
+          for pair in HorizonIOS:cube HorizonIOSGame:game; do
+            name=${pair%%:*}; kind=${pair##*:}
+            app=build/dd-device/Build/Products/Release-iphoneos/$name.app
+            test -d "$app"
+            rm -rf build/ipa-$kind && mkdir -p build/ipa-$kind/Payload
+            cp -R "$app" build/ipa-$kind/Payload/
+            (cd build/ipa-$kind && zip -qry ../iMC-$kind-unsigned.ipa Payload)
+            ls -la build/iMC-$kind-unsigned.ipa
+            lipo -info "$app/$name"
+          done
+      - name: Build both apps for the simulator
         working-directory: platform/ios
         run: |
           set -o pipefail
-          xcodebuild -project HorizonIOS.xcodeproj -scheme HorizonIOS -configuration Debug \
-            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/dd-sim \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee xcodebuild-sim.log
+          libs="-lhorizon_ios $(cat build/rust/simulator/native-libs.txt)"
+          for scheme in HorizonIOS HorizonIOSGame; do
+            xcodebuild -project HorizonIOS.xcodeproj -scheme $scheme -configuration Debug \
+              -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/dd-sim \
+              CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+              OTHER_LDFLAGS="$libs" build 2>&1 | tee xcodebuild-sim-$scheme.log
+          done
       - uses: actions/upload-artifact@v4
         with:
-          name: iMC-unsigned-ipa
-          path: platform/ios/build/iMC-unsigned.ipa
+          name: iMC-cube-unsigned-ipa
+          path: platform/ios/build/iMC-cube-unsigned.ipa
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iMC-game-unsigned-ipa
+          path: platform/ios/build/iMC-game-unsigned.ipa
           if-no-files-found: error
       - name: Explain a failure
         if: failure()
         run: |
-          for f in rust-test.log rust-device.log rust-sim.log platform/ios/xcodebuild-device.log platform/ios/xcodebuild-sim.log; do
-            [ -f "$f" ] && grep -qE 'error|FAILED' "$f" && platform/ios/ci/annotate-tail.sh "$f" "ios-app $(basename $f)"
+          for f in platform/ios/xcodebuild-*.log; do
+            [ -f "$f" ] && grep -qE 'error|FAILED' "$f" && platform/ios/ci/annotate-tail.sh "$f" "xcode $(basename $f)"
           done
           exit 0
       - name: Simulator smoke test (informational)
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 25
         working-directory: platform/ios
-        run: ci/smoke.sh build/dd-sim/Build/Products/Debug-iphonesimulator/HorizonIOS.app io.github.hocine123321.imc
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: iMC-simulator-smoke
-          path: |
-            platform/ios/smoke.png
-            platform/ios/smoke.log
-          if-no-files-found: ignore
+        run: |
+          p=build/dd-sim/Build/Products/Debug-iphonesimulator
+          ci/smoke.sh \
+            cube "$p/HorizonIOS.app" io.github.hocine123321.imc " fps " 90 \
+            game "$p/HorizonIOSGame.app" io.github.hocine123321.imc.game "" 45
