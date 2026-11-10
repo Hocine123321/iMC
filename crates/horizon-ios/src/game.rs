@@ -1,15 +1,17 @@
 //! Horizon's own client on iOS (milestone M4): `horizon_ios_game_main` points Horizon at folders
-//! inside the app's container and starts it. Horizon creates its own winit event loop, window and
+//! inside the app's Documents folder and starts it. Horizon creates its own winit event loop, window and
 //! renderer, so on a phone with no prepared resources the first thing it shows is its own
 //! "resources missing" screen: that proves its renderer, text and UI run here before any of the
 //! game's files are involved. Resources arrive in M6.
 
 use std::path::PathBuf;
 
-/// The app's private data folder (`~/Library/Application Support` in the container).
-fn support_dir() -> PathBuf {
+/// The folder Horizon keeps its settings, logs and worlds in: inside Documents, so that the Files
+/// app shows `horizon/logs/latest.log` (the app declares file sharing) and a tester can send it back.
+/// Documents is also backed up by iOS; revisit when worlds are big (memory strategy, persistence).
+fn documents_dir() -> PathBuf {
     match std::env::var_os("HOME") {
-        Some(home) => PathBuf::from(home).join("Library").join("Application Support"),
+        Some(home) => PathBuf::from(home).join("Documents"),
         None => std::env::temp_dir(),
     }
 }
@@ -31,7 +33,7 @@ pub fn launch_args(home: &std::path::Path) -> Vec<String> {
 #[unsafe(no_mangle)]
 pub extern "C" fn horizon_ios_game_main() {
     crate::telemetry::start("game");
-    let home = support_dir().join("horizon");
+    let home = documents_dir().join("horizon");
     if let Err(e) = std::fs::create_dir_all(&home) {
         eprintln!("horizon-ios: cannot create {}: {e}", home.display());
     }

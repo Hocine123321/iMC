@@ -1687,6 +1687,7 @@ version = "0.1.0"
 dependencies = [
  "horizon-client",
  "horizon-threads",
+ "libc",
  "objc2 0.6.5",
  "pollster",
  "wgpu",

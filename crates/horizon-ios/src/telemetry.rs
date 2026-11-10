@@ -110,6 +110,115 @@ fn thermal() -> (u8, bool) {
     (0, false)
 }
 
+/// A number from `sysctlbyname` (4 or 8 bytes), on Apple platforms.
+#[cfg(target_vendor = "apple")]
+fn sysctl_number(name: &str) -> Option<u64> {
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut buffer = [0u8; 8];
+    let mut length = buffer.len();
+    // SAFETY: `buffer` and `length` describe the same 8 writable bytes; no new value is set.
+    let status = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    match (status, length) {
+        (0, 4) => Some(u32::from_ne_bytes(buffer[..4].try_into().ok()?) as u64),
+        (0, 8) => Some(u64::from_ne_bytes(buffer)),
+        _ => None,
+    }
+}
+
+/// A string from `sysctlbyname`, on Apple platforms.
+#[cfg(target_vendor = "apple")]
+fn sysctl_string(name: &str) -> Option<String> {
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut buffer = [0u8; 128];
+    let mut length = buffer.len();
+    // SAFETY: `buffer` and `length` describe the same 128 writable bytes; no new value is set.
+    let status = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    let text = &buffer[..length.min(buffer.len())];
+    Some(String::from_utf8_lossy(text).trim_end_matches('\0').to_string())
+}
+
+/// What the hardware says about itself: the model id, the cores by performance level, the memory.
+/// `perflevel0` is the fastest level; whether the sysctl exists on an A14 was ledger item L-011.
+pub struct Device {
+    pub machine: String,
+    pub build: String,
+    pub cpus: Option<u64>,
+    pub perf_cores: Option<u64>,
+    pub efficiency_cores: Option<u64>,
+    pub memory_mb: Option<f64>,
+}
+
+pub fn device() -> Device {
+    #[cfg(target_vendor = "apple")]
+    {
+        Device {
+            machine: sysctl_string("hw.machine").unwrap_or_else(|| "unknown".into()),
+            build: sysctl_string("kern.osversion").unwrap_or_else(|| "unknown".into()),
+            cpus: sysctl_number("hw.ncpu"),
+            perf_cores: sysctl_number("hw.perflevel0.physicalcpu"),
+            efficiency_cores: sysctl_number("hw.perflevel1.physicalcpu"),
+            memory_mb: sysctl_number("hw.memsize").map(mb),
+        }
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        Device {
+            machine: std::env::consts::ARCH.to_string(),
+            build: "unknown".into(),
+            cpus: std::thread::available_parallelism().ok().map(|n| n.get() as u64),
+            perf_cores: None,
+            efficiency_cores: None,
+            memory_mb: None,
+        }
+    }
+}
+
+fn count(value: Option<u64>) -> String {
+    value.map_or("?".to_string(), |n| n.to_string())
+}
+
+/// The device as text, for `device.txt` and the overlay.
+pub fn device_report() -> String {
+    let d = device();
+    format!(
+        "machine: {}\nos build: {}\ncpus: {} (perflevel0 {}, perflevel1 {})\nmemory (hw.memsize): {}\n",
+        d.machine,
+        d.build,
+        count(d.cpus),
+        count(d.perf_cores),
+        count(d.efficiency_cores),
+        d.memory_mb.map_or("?".to_string(), |m| format!("{m:.0} MB")),
+    )
+}
+
+/// Writes a text file into the report folder (for example `adapter.txt`).
+pub fn write_text(name: &str, text: &str) {
+    let dir = report_dir();
+    let _ = fs::create_dir_all(&dir);
+    if let Err(e) = fs::write(dir.join(name), text) {
+        eprintln!("horizon-ios: cannot write {name}: {e}");
+    }
+}
+
 pub fn thermal_name(state: u8) -> &'static str {
     match state {
         0 => "NOMINAL",
@@ -254,6 +363,9 @@ pub fn start(mode: &'static str) {
     };
     let _ = fs::create_dir_all(&telemetry.dir);
     eprintln!("horizon-ios: telemetry in {}", telemetry.dir.display());
+    let report = device_report();
+    eprintln!("horizon-ios: device\n{report}");
+    write_text("device.txt", &report);
     let spawned = std::thread::Builder::new()
         .name("telemetry".into())
         .spawn(move || {
@@ -348,6 +460,16 @@ pub fn overlay_lines() -> Vec<String> {
             if s.low_power { "ON" } else { "OFF" }
         ),
         format!("UPTIME {:.0} S  MODE {}", s.uptime_s, telemetry.mode.to_uppercase()),
+        {
+            let d = device();
+            format!(
+                "{}  CPU {} ({}P {}E)",
+                d.machine.replace(',', "."),
+                count(d.cpus),
+                count(d.perf_cores),
+                count(d.efficiency_cores)
+            )
+        },
     ]
 }
 
@@ -384,6 +506,21 @@ mod tests {
             assert!(json.contains(key), "{key} missing from {json}");
         }
         assert!(json.trim_end().ends_with('}'));
+    }
+
+    #[test]
+    fn the_device_report_names_the_machine_and_cores() {
+        let report = device_report();
+        assert!(report.contains("machine: "));
+        assert!(report.contains("cpus: "));
+        assert!(report.ends_with('\n'));
+    }
+
+    #[test]
+    fn without_a_sampler_the_overlay_says_so() {
+        assert_eq!(overlay_lines().len(), 1); // telemetry not started in tests
+        let t = Telemetry::new("test");
+        assert_eq!(t.mode, "test");
     }
 
     #[test]

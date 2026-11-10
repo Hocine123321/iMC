@@ -153,6 +153,18 @@ impl State {
         );
         eprintln!("horizon-ios: features {:?}", adapter.features());
         eprintln!("horizon-ios: limits {:?}", adapter.limits());
+        // The same, as a file in Documents/telemetry (the Files app shows it): ledger L-012, L-025.
+        telemetry::write_text(
+            "adapter.txt",
+            &format!(
+                "{}\nadapter: {:?}\n\ndownlevel: {:?}\n\nfeatures: {:?}\n\nlimits: {:#?}\n",
+                telemetry::device_report(),
+                info,
+                adapter.get_downlevel_capabilities(),
+                adapter.features(),
+                adapter.limits()
+            ),
+        );
 
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("horizon-ios device"),

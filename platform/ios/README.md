@@ -47,3 +47,14 @@ Set your team under Signing & Capabilities, choose your iPhone, Run. The console
 ## What this does and does not prove
 
 Proves, when it runs on a device: the toolchain, signing, winit lifecycle, wgpu surface and Metal pipeline work together. Does not prove anything about Horizon's renderer, memory, resources or performance.
+
+## Sending results back
+
+Open the **Files** app, On My iPhone, the app's folder:
+
+- `telemetry/latest.json`, `samples.csv`: the running report (both apps).
+- `telemetry/device.txt`: model id, OS build, core counts, memory.
+- `telemetry/adapter.txt` (cube app): the Metal adapter's features, downlevel flags and limits.
+- `horizon/logs/latest.log` (iMC, Horizon's client): Horizon's own log.
+
+The CI simulator cannot run Horizon's renderer to the end: the simulator exposes only the Apple2 GPU family and Horizon's terrain needs indirect draws (ledger L-035). The "game" smoke test there therefore stops at pipeline creation by design; a physical device is the real test.

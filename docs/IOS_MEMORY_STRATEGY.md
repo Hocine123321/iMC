@@ -10,6 +10,8 @@ Companion to `docs/IOS_FEASIBILITY_REPORT.md` and `docs/IOS_IMPLEMENTATION_ROADM
 - The memory an app may use is dynamic. Query it at runtime instead of assuming a cap (`os_proc_available_memory()`), and read the footprint with `task_info(TASK_VM_INFO)`. [ASSUMPTION]
 - iPhone 12: 4 GB shared by iOS, other apps, the game's CPU heap and GPU buffers/textures. [DOC: your brief.]
 
+First device measurement (iPhone 12, cube app, one reading, supplied by the owner; see `docs/ios/ledger.md` L-040): footprint 64.2 MB with `os_proc_available_memory` 2034 MB, and the sum stayed at 2098 MB between the peak (98.9 MB footprint, 1999 MB available) and the later reading. That is a data point about how this OS counts, **not** a budget: how the ceiling moves with other apps, free memory and iOS version has not been measured, and the strategy below still defines targets as fractions of `os_proc_available_memory` read at launch.
+
 What the repository measures today:
 - Windows: working set. Linux: `/proc/self/statm`. Apple: `proc_pidinfo(PROC_PIDTASKINFO).pti_resident_size` (`horizon-threads/src/process_memory.rs:66`). This does not compile for iOS [COMPILED] and is the wrong metric there.
 - The benchmark harness samples RSS from *outside* the process with `ps` (`docs/benchmark.md`); on Apple Silicon "no per-process [GPU memory] figure is available" [DOC]. On iOS the app must measure itself.

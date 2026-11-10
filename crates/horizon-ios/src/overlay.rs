@@ -3,7 +3,7 @@
 //! file and no dependency, so the overlay works before any of Horizon's own text code is running.
 
 const COLS: usize = 46;
-const LINES: usize = 5;
+const LINES: usize = 6;
 const CELL_W: usize = 6;
 const CELL_H: usize = 8;
 const PAD: usize = 3;
@@ -55,6 +55,7 @@ pub fn glyph(c: char) -> [u8; 7] {
         '-' => [0, 0, 0, 0b11111, 0, 0, 0],
         '(' => [0b00010, 0b00100, 0b01000, 0b01000, 0b01000, 0b00100, 0b00010],
         ')' => [0b01000, 0b00100, 0b00010, 0b00010, 0b00010, 0b00100, 0b01000],
+        '?' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0, 0b00100],
         '/' => [0b00001, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b10000],
         '%' => [0b11001, 0b11010, 0b00010, 0b00100, 0b01000, 0b01011, 0b10011],
         _ => [0; 7],
@@ -316,7 +317,7 @@ mod tests {
     #[test]
     fn every_overlay_character_has_a_glyph() {
         // The characters the telemetry lines use.
-        for c in "FPS P50 P99 MS FOOTPRINT MB PEAK AVAILABLE MIN THERMAL NOMINAL FAIR SERIOUS CRITICAL LOW POWER ON OFF UPTIME MODE CUBE GAME TELEMETRY STARTING 0123456789.:-()/%".chars() {
+        for c in "FPS P50 P99 MS FOOTPRINT MB PEAK AVAILABLE MIN THERMAL NOMINAL FAIR SERIOUS CRITICAL LOW POWER ON OFF UPTIME MODE CUBE GAME TELEMETRY STARTING IPHONE CPU 0123456789.:-()/%?".chars() {
             if c != ' ' {
                 assert_ne!(glyph(c), [0; 7], "no glyph for {c:?}");
             }
